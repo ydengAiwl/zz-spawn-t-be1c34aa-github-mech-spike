@@ -1,0 +1,54 @@
+name: SyncProbe
+on:
+  workflow_dispatch:
+    inputs:
+      pat_push:
+        description: 'If true, skip the git push (PAT-push is done from the agent shell instead)'
+        type: boolean
+        default: false
+      review_pr:
+        description: 'PR number to POST an APPROVE review on via GITHUB_TOKEN (empty = skip)'
+        type: string
+        default: ''
+      push_pr_branch:
+        description: 'Branch name to push an extra commit to via GITHUB_TOKEN (empty = skip)'
+        type: string
+        default: ''
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create chore/shared-repin branch with sync lock file
+        run: node scripts/probe-sync.mjs
+      - name: Push chore branch with GITHUB_TOKEN
+        if: ${{ !inputs.pat_push }}
+        run: |
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git chore/shared-repin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push extra commit to PR branch with GITHUB_TOKEN
+        if: ${{ inputs.push_pr_branch != '' }}
+        run: |
+          git fetch origin "${{ inputs.push_pr_branch }}"
+          git checkout -b work "origin/${{ inputs.push_pr_branch }}"
+          date > bot-pushed.txt
+          git add bot-pushed.txt
+          git -c user.email=bot@bot -c user.name=bot commit -m "bot push"
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git HEAD:refs/heads/"${{ inputs.push_pr_branch }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: POST APPROVE review via GITHUB_TOKEN
+        if: ${{ inputs.review_pr != '' }}
+        run: |
+          curl -sS -w '\nHTTP:%{http_code}\n' \
+            -X POST \
+            -H "authorization: bearer $GITHUB_TOKEN" \
+            -H "accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${{ inputs.review_pr }}/reviews" \
+            -d '{"event":"APPROVE","body":"bot spike approval"}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
