@@ -6,4 +6,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - run: echo test ok
+      - name: fail-marker
+        if: ${{ hashFiles('FAIL') != '' }}
+        run: exit 1
